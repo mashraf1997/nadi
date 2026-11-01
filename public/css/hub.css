@@ -1,0 +1,57 @@
+/* Agency panel (HUB_MODE) — builds on admin.css */
+.hub-main { max-width: 1080px; margin: 0 auto; padding: 22px 18px 80px; }
+.hub-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.hub-tools .seg small { opacity: .65; font-weight: 600; }
+.hub-search { flex: 1; min-width: 200px; max-width: 340px; margin-inline-start: auto; }
+.clients { display: grid; gap: 10px; margin-bottom: 18px; }
+.client { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; position: relative; overflow: hidden; }
+.client::before { content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 4px; background: var(--ok); }
+.client.waiting::before { background: var(--warn); }
+.client.suspended::before { background: var(--muted); }
+.client.suspended { opacity: .75; }
+.c-avatar { width: 48px; height: 48px; flex: none; border-radius: 14px; display: grid; place-items: center; font-weight: 800; font-size: 20px; color: #fff; background: var(--c, var(--brand)); overflow: hidden; }
+.c-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.c-main { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.c-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.c-name b { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.c-url { font-size: 13px; direction: ltr; unicode-bidi: isolate; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; justify-self: start; max-width: 100%; }
+.c-url:hover { text-decoration: underline; }
+.c-meta { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); align-items: center; }
+.c-meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.c-meta code { font-weight: 800; letter-spacing: .08em; color: var(--text); background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+.bill { font-weight: 700; }
+.bill.ok { color: var(--ok); }
+.bill.due { color: var(--warn); }
+.bill.overdue { color: var(--danger); }
+.c-actions { display: flex; gap: 6px; flex: none; }
+.tag.active { background: #dcfae6; color: var(--ok); }
+.tag.waiting { background: #fef0c7; color: var(--warn); }
+.tag.suspended { background: var(--surface-2); color: var(--muted); }
+.hub-empty { text-align: center; padding: 34px 20px; }
+.hub-empty .big { font-size: 46px; }
+.hub-empty h3 { justify-content: center; font-size: 20px; margin: 6px 0; }
+.hub-empty p { max-width: 520px; margin: 0 auto 18px; }
+.hub-steps { list-style: none; padding: 0; margin: 0 auto 20px; display: grid; gap: 10px; max-width: 420px; text-align: start; }
+.hub-steps li { display: flex; gap: 10px; align-items: center; }
+.hub-steps b { width: 28px; height: 28px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand-text); }
+.hub-dns h3 { font-size: 15px; margin-top: 0; }
+.hub-dns code { background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+.slug-row { display: flex; align-items: center; gap: 6px; direction: ltr; }
+.slug-row input { flex: 1; min-width: 0; }
+.slug-row em { font-style: normal; color: var(--muted); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.copy-row { display: flex; align-items: center; gap: 10px; background: var(--surface-2); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.copy-row > span { font-size: 12.5px; color: var(--muted); font-weight: 700; flex: none; }
+.copy-row code { flex: 1; min-width: 0; font-weight: 800; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
+.ready-head { text-align: center; margin-bottom: 14px; }
+.ready-head .big { font-size: 44px; }
+.ready-head h3 { justify-content: center; margin: 4px 0; }
+.danger-zone { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); margin-top: 16px; padding-top: 14px; }
+@media (max-width: 640px) {
+  .client { flex-wrap: wrap; padding: 12px 14px; }
+  .c-actions { width: 100%; }
+  .c-actions .btn { flex: 1; justify-content: center; }
+  .hub-search { max-width: none; margin: 0; }
+}
+.i.xs { width: 14px; height: 14px; }
+.hub-tools .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.hub-tools .seg button { white-space: nowrap; }

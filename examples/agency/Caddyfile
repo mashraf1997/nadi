@@ -1,0 +1,19 @@
+# Certificates are issued on demand, only for hosts Nadi says it serves
+# (the panel domain and your clients' addresses), so nobody can make this
+# server request certificates for random domains.
+{
+	on_demand_tls {
+		ask http://nadi:3000/_hub/tls-check
+	}
+}
+
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy nadi:3000
+}
+
+http:// {
+	redir https://{host}{uri} permanent
+}

@@ -1,0 +1,42 @@
+# Nadi — one-click deploy on a Hostinger VPS (Docker Manager), or anywhere with Docker.
+#
+#   docker compose up -d
+#
+# Optional environment variables (set them in Hostinger's Docker Manager or a .env file):
+#   DOMAIN       Your domain, e.g. gym.example.com. Point its DNS A record at this server
+#                and Caddy will get a free HTTPS certificate automatically.
+#                Leave empty to serve plain HTTP on the server's IP.
+#   SETUP_CODE   Code required to create the admin account on first launch.
+#                If empty, a random code is printed in the nadi container logs.
+#   DEMO_MODE    "true" turns the install into a public, self-resetting demo.
+services:
+  nadi:
+    image: ghcr.io/mashraf1997/nadi:latest
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - SETUP_CODE=${SETUP_CODE:-}
+      - DEMO_MODE=${DEMO_MODE:-false}
+    volumes:
+      - nadi-data:/data
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - nadi
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    command: caddy reverse-proxy --from ${DOMAIN:-:80} --to nadi:3000
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  nadi-data:
+  caddy-data:
+  caddy-config:

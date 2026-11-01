@@ -1,0 +1,46 @@
+# Nadi — several branches on one server, each with its own subdomain,
+# admin, data and gym page. Copy this folder, edit the Caddyfile, then:
+#
+#   docker compose up -d
+#
+# Point each subdomain's DNS A record at the server first; Caddy gets the
+# HTTPS certificates automatically. To add a branch, copy one service block,
+# give it a new name and volume, and add it to the Caddyfile.
+x-nadi: &nadi
+  image: ghcr.io/mashraf1997/nadi:latest
+  restart: unless-stopped
+  environment:
+    - NODE_ENV=production
+    - SETUP_CODE=${SETUP_CODE:-}
+  expose:
+    - "3000"
+
+services:
+  downtown:
+    <<: *nadi
+    volumes:
+      - downtown-data:/data
+
+  mall:
+    <<: *nadi
+    volumes:
+      - mall-data:/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [downtown, mall]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  downtown-data:
+  mall-data:
+  caddy-data:
+  caddy-config:

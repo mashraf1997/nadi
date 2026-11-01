@@ -1,0 +1,8 @@
+# One line per branch: subdomain → service name from docker-compose.yml
+downtown.example.com {
+	reverse_proxy downtown:3000
+}
+
+mall.example.com {
+	reverse_proxy mall:3000
+}

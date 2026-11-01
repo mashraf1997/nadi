@@ -1,0 +1,44 @@
+# Nadi agency mode: host every client's gym on one server.
+#
+#   1. DNS: point an A record for your panel domain (BASE_DOMAIN) and a
+#      wildcard *.BASE_DOMAIN at this server, e.g. apps.example.com and
+#      *.apps.example.com.
+#   2. Set BASE_DOMAIN below (or in a .env file / Hostinger's Docker Manager).
+#   3. docker compose up -d, then open https://BASE_DOMAIN/hub and enter the
+#      setup code from: docker compose logs nadi
+#
+# Clients get https://<name>.BASE_DOMAIN instantly. For a client's own domain,
+# add it in the panel and have them point its A record at this server; Caddy
+# issues the certificate on the first visit (on-demand TLS).
+services:
+  nadi:
+    image: ghcr.io/mashraf1997/nadi:latest
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - HUB_MODE=true
+      - BASE_DOMAIN=${BASE_DOMAIN:-localhost}
+      - SETUP_CODE=${SETUP_CODE:-}
+    volumes:
+      - nadi-data:/data
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - nadi
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  nadi-data:
+  caddy-data:
+  caddy-config:
