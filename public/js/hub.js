@@ -271,7 +271,7 @@
     const str = v.toLocaleString(lang === 'ar' ? 'en' : lang);
     return PREFIX.includes(cur) ? `${cur}${str}` : `${str} ${cur}`.trim();
   };
-  const slugify = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  const slugify = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
   const host = (url) => url.replace(/^https?:\/\//, '');
 
   function applyLang() {

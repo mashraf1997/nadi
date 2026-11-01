@@ -58,12 +58,16 @@
   }
 
   const startBtn = $('#start');
+  let started = false;
   async function start() {
+    if (started) return;
+    started = true;
     startBtn.hidden = true;
     try {
       await window.NadiScanner.start($('#video'), onCode);
       $('#vf').classList.add('live');
     } catch (err) {
+      started = false;
       startBtn.hidden = false;
       show(`<div class="big">${ic('x-circle')}</div><h2>${esc(t.cameraError)}</h2>`, 'bad');
     }
