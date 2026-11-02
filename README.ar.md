@@ -11,6 +11,8 @@
 
 [![Deploy on Hostinger](https://assets.hostinger.com/vps/deploy.svg)](https://www.hostinger.com/docker-hosting?compose_url=https://raw.githubusercontent.com/mashraf1997/nadi/main/docker-compose.yml&REFERRALCODE=YOUR_REFERRAL_CODE)
 
+<sub>جزء من 4 تطبيقات مجانية للبيزنس الصغير: <a href="https://mashraf1997.github.io/ar/">mashraf1997.github.io</a></sub>
+
 [English](README.md) · [العربية](README.ar.md)
 
 </div>
