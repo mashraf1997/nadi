@@ -1,7 +1,7 @@
 'use strict';
 
-// Instant notifications to the owner's phone through a Telegram bot.
-// Free, no extra dependencies: one HTTPS call per message.
+// Instant notifications to the owner: Telegram bot, email (if SMTP is set up)
+// and web push to the owner's devices. alertOwner() fans out to all of them.
 
 const TOKEN_RE = /^\d{5,}:[\w-]{30,}$/;
 const CHAT_RE = /^(-?\d{3,}|@\w{4,})$/;
@@ -115,4 +115,32 @@ function mountRoutes(router, store, { guard, appName }) {
   });
 }
 
-module.exports = { sendTelegram, detectChats, notifyInBackground, publicView, validToken, validChat, mountRoutes };
+/**
+ * One alert to every channel the owner set up. text uses WhatsApp-style *bold*.
+ * opts: { title, url (absolute), path (for push, e.g. '/admin#orders') }
+ */
+function alertOwner(store, text, opts = {}, log = console) {
+  notifyInBackground(store.db.notify, opts.url ? `${text}\n\n🔗 ${opts.url}` : text, log);
+  const smtp = store.db.smtp;
+  if (smtp && smtp.ownerEmail && smtp.alerts !== false) {
+    const mailer = require('./mailer');
+    const plain = text.replace(/\*/g, '');
+    const title = opts.title || plain.split('\n')[0];
+    const { html, text: body } = mailer.render({ brand: { name: store.settings.name, color: store.settings.color }, title, body: plain.split('\n').slice(1).join('\n'), button: opts.url ? { label: 'Open', url: opts.url } : null });
+    mailer.sendInBackground(store, { to: smtp.ownerEmail, subject: title, html, text: body }, log);
+  }
+  if (store.db.push && Array.isArray(store.db.push.subs) && store.db.push.subs.length) {
+    const lines = text.replace(/\*/g, '').split('\n').filter((l) => l && !/^━+$/.test(l));
+    require('./push').sendInBackground(store, { title: opts.title || lines[0] || '', body: lines.slice(1, 5).join('\n'), url: opts.path || '/admin' });
+  }
+}
+
+// Server errors: tell the owner, at most once an hour.
+let lastErrorAlert = 0;
+function alertError(store, appName, err, log = console) {
+  if (Date.now() - lastErrorAlert < 3600e3) return;
+  lastErrorAlert = Date.now();
+  alertOwner(store, `⚠️ *${appName}: server error*\n${String((err && err.message) || err).slice(0, 300)}`, { title: `${appName}: server error` }, log);
+}
+
+module.exports = { sendTelegram, detectChats, notifyInBackground, alertOwner, alertError, publicView, validToken, validChat, mountRoutes };

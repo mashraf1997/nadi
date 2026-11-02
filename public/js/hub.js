@@ -87,6 +87,12 @@
       delSub: 'Their page stops working. The data is moved to the trash folder on the server, not erased. Type {slug} to confirm.',
       delDone: 'Client deleted',
       settings: 'Settings',
+      whiteLabel: 'White-label',
+      whiteLabelHint: 'Shown at the bottom of every client page instead of the app name.',
+      brandName: 'Your agency name',
+      brandUrl: 'Your website',
+      hideBranding: 'Hide the “powered by” line completely',
+      invalid_url: 'The website must start with https://',
       currentPw: 'Current password',
       newPassword: 'New password',
       saved: 'Saved',
@@ -192,6 +198,12 @@
       delSub: 'صفحته هتقف. البيانات بتتنقل لفولدر trash على السيرفر ومش بتتمسح. اكتب {slug} للتأكيد.',
       delDone: 'العميل اتحذف',
       settings: 'الإعدادات',
+      whiteLabel: 'باسم وكالتك (White-label)',
+      whiteLabelHint: 'بيظهر تحت في كل صفحات العملاء بدل اسم التطبيق.',
+      brandName: 'اسم وكالتك',
+      brandUrl: 'موقعك',
+      hideBranding: 'اخفي سطر «بواسطة» خالص',
+      invalid_url: 'الموقع لازم يبدأ بـ https://',
       currentPw: 'كلمة السر الحالية',
       newPassword: 'كلمة السر الجديدة',
       saved: 'اتحفظ',
@@ -635,6 +647,11 @@
   function openSettings() {
     const box = openModal(`<h3>${esc(T('settings'))}</h3><form id="sf">
       <label class="field"><span>${esc(T('currency'))}</span><input name="currency" maxlength="12" value="${esc(state.data.settings.currency)}"></label>
+      <fieldset class="wl"><legend>${esc(T('whiteLabel'))}</legend>
+        <label class="field"><span>${esc(T('brandName'))}</span><input name="brandName" maxlength="60" value="${esc(state.data.settings.brandName || '')}"><small>${esc(T('whiteLabelHint'))}</small></label>
+        <label class="field"><span>${esc(T('brandUrl'))}</span><input name="brandUrl" type="url" maxlength="200" placeholder="https://" value="${esc(state.data.settings.brandUrl || '')}"></label>
+        <label class="check"><input name="hideBranding" type="checkbox"${state.data.settings.hideBranding ? ' checked' : ''}> ${esc(T('hideBranding'))}</label>
+      </fieldset>
       <label class="field"><span>${esc(T('currentPw'))}</span><input name="current" type="password" autocomplete="current-password"></label>
       <label class="field"><span>${esc(T('newPassword'))}</span><input name="password" type="password" minlength="8" autocomplete="new-password"><small>${esc(T('passwordHint'))}</small></label>
       <div class="modal-actions"><button class="btn" type="submit">${esc(T('save'))}</button><button class="btn ghost" type="button" data-close>${esc(T('cancel'))}</button></div>
@@ -642,7 +659,7 @@
     const f = $('#sf', box);
     f.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const body = { currency: f.currency.value };
+      const body = { currency: f.currency.value, brandName: f.brandName.value, brandUrl: f.brandUrl.value, hideBranding: f.hideBranding.checked };
       if (f.password.value) Object.assign(body, { current: f.current.value, password: f.password.value });
       try {
         await api('PUT', '/settings', body);

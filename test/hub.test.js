@@ -121,6 +121,20 @@ test('each client is an isolated app reached by subdomain or custom domain', asy
   assert.equal((await req('nobody.example.test', 'GET', '/')).headers.location, '/hub');
 });
 
+test('white-label: the agency renames or hides "powered by" on client pages', async () => {
+  assert.equal((await hub('PUT', '/settings', { brandUrl: 'javascript:alert(1)' })).status, 400);
+  const s = await hub('PUT', '/settings', { brandName: 'Pixel Agency', brandUrl: 'https://pixel.example', hideBranding: false });
+  assert.equal(s.json.settings.brandName, 'Pixel Agency');
+  const page = await req('bean.example.test', 'GET', '/');
+  assert.match(page.text, /Pixel Agency/);
+  assert.match(page.text, /https:\/\/pixel\.example/);
+  assert.equal((await req('bean.example.test', 'GET', '/api/state')).json.brand.name, 'Pixel Agency');
+  await hub('PUT', '/settings', { hideBranding: true });
+  assert.ok(!(await req('bean.example.test', 'GET', '/')).text.includes('class="powered"'));
+  await hub('PUT', '/settings', { brandName: '', brandUrl: '', hideBranding: false });
+  assert.match((await req('bean.example.test', 'GET', '/')).text, /class="powered"/);
+});
+
 test('on-demand TLS only approves hosts we serve', async () => {
   const check = async (d) => (await req('caddy', 'GET', `/_hub/tls-check?domain=${d}`)).status;
   assert.equal(await check('beancafe.com'), 200);

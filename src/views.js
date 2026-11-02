@@ -126,7 +126,7 @@ function footer({ s, t, lang }) {
     ${s.address ? `<p class="addr">${icon('pin')}${safeUrl(s.mapUrl) ? `<a href="${esc(safeUrl(s.mapUrl))}" target="_blank" rel="noopener">${esc(s.address)}</a>` : esc(s.address)}</p>` : ''}
   </section>
   ${s.about || s.policy ? `<section class="info-card">${s.about ? `<p>${esc(s.about)}</p>` : ''}${s.policy ? `<h3>${icon('file')}${esc(t.policy)}</h3><p class="muted">${esc(s.policy)}</p>` : ''}</section>` : ''}
-  <p class="powered">${esc(t.poweredBy)} <a href="https://github.com/mashraf1997/nadi" target="_blank" rel="noopener">Nadi</a></p>
+  ${powered(s, t)}
 </footer>`;
 }
 
@@ -215,7 +215,18 @@ ${footer({ s, t, lang })}
 }
 
 /** A member's digital membership card: show the QR at the door. */
-function renderCardPage({ settings: s, lang, member: m, state, qr, url, today, visits = [], visitCount = 0, baseUrl = '' }) {
+/** "Powered by" line; agencies can rename it or hide it (white-label). */
+function powered(s, t) {
+  const b = s._brand;
+  if (b && b.hideBranding) return '';
+  if (b && b.name) {
+    const u = safeUrl(b.url);
+    return `<p class="powered">${esc(t.poweredBy)} ${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(b.name)}</a>` : esc(b.name)}</p>`;
+  }
+  return `<p class="powered">${esc(t.poweredBy)} <a href="https://github.com/mashraf1997/nadi" target="_blank" rel="noopener">Nadi</a></p>`;
+}
+
+function renderCardPage({ settings: s, lang, member: m, state, qr, url, today, visits = [], visitCount = 0, baseUrl = '', renewOnline = null, payPending = false, justPaid = false }) {
   const t = strings(lang);
   const theme = cleanTheme(s.theme);
   if (!m) {
@@ -259,7 +270,10 @@ function renderCardPage({ settings: s, lang, member: m, state, qr, url, today, v
       ${sub && state.status !== 'none' ? `<div class="meter"><i style="width:${pct}%"></i></div><div class="meter-labels"><span>${esc(M.dateLabel(sub.start, lang, { day: 'numeric', month: 'short' }))}</span><span>${esc(sub.visits ? `${sub.used}/${sub.visits} ${t.visits}` : M.dateLabel(sub.end, lang, { day: 'numeric', month: 'short' }))}</span></div>` : ''}
     </div>
   </div>
-  ${digits ? `<a class="btn ${state.status === 'active' && !state.soon ? 'ghost' : 'wa'} block" href="https://wa.me/${esc(digits)}?text=${esc(encodeURIComponent(renewText))}" target="_blank" rel="noopener">${icon('whatsapp')}${esc(state.status === 'active' && !state.soon ? t.contactGym : t.renewWhatsapp)}</a>` : ''}
+  ${justPaid ? `<div class="paid-banner">${icon('check')}<b>${esc(t.renewedOnline)}</b></div>` : ''}
+  ${payPending ? `<div class="paid-banner pending">${icon('clock')}<b>${esc(t.payConfirming)}</b></div>` : ''}
+  ${renewOnline && !justPaid ? `<button class="btn block" type="button" id="renew-online" data-token="${esc(m.token)}">${icon('cash')}${esc(fill(t.renewOnline, { plan: renewOnline.name, price: renewOnline.price }))}</button>` : ''}
+  ${digits ? `<a class="btn ${(state.status === 'active' && !state.soon) || renewOnline ? 'ghost' : 'wa'} block" href="https://wa.me/${esc(digits)}?text=${esc(encodeURIComponent(renewText))}" target="_blank" rel="noopener">${icon('whatsapp')}${esc(state.status === 'active' && !state.soon ? t.contactGym : t.renewWhatsapp)}</a>` : ''}
   <section class="info-card">
     <h3>${icon('trend-up')}${esc(t.recentVisits)}<span class="count">${esc(fill(t.totalVisits, { n: visitCount }))}</span></h3>
     ${visits.length ? `<ul class="visits">${visits.map((v) => `<li><span>${esc(M.dateLabel(v.date, lang, { weekday: 'short', day: 'numeric', month: 'short' }))}</span><b>${esc(timeLabel(v.minutes, lang))}</b></li>`).join('')}</ul>` : `<p class="muted">${esc(t.noVisits)}</p>`}
@@ -267,6 +281,23 @@ function renderCardPage({ settings: s, lang, member: m, state, qr, url, today, v
   <p class="muted small center">${icon('sparkles', 'i xs')} ${esc(t.addHome)}</p>
   <p class="url-line">${esc(url)}</p>
 </main>
+${renewOnline ? `<script>
+(() => {
+  const b = document.getElementById('renew-online');
+  if (b) b.addEventListener('click', async () => {
+    b.disabled = true;
+    try {
+      const res = await fetch('/api/members/' + encodeURIComponent(b.dataset.token) + '/renew', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Nadi': '1' }, body: '{}' });
+      const r = await res.json();
+      if (!res.ok) throw new Error(r.error);
+      location.href = r.url;
+    } catch {
+      alert(${inlineJson(t.payFailed)});
+      b.disabled = false;
+    }
+  });
+})();
+</script>` : ''}
 </body>
 </html>`;
 }

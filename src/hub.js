@@ -93,7 +93,9 @@ function createHub(o) {
   fs.mkdirSync(tenantsDir, { recursive: true });
 
   const db = readJson(file) || { version: 1, secret: crypto.randomBytes(32).toString('hex'), auth: null, setupDone: false, settings: { currency: '' }, tenants: [] };
-  db.settings = { currency: '', ...db.settings };
+  db.settings = { currency: '', brandName: '', brandUrl: '', hideBranding: false, ...db.settings };
+  // White-label: what client pages show instead of "powered by <App>".
+  const branding = () => ({ name: db.settings.brandName, url: db.settings.brandUrl, hideBranding: !!db.settings.hideBranding });
   const save = () => writeJsonAtomic(file, db);
   if (!db.setupDone) {
     if (o.setupCode) db.setupCode = o.setupCode;
@@ -117,7 +119,7 @@ function createHub(o) {
   function appFor(t) {
     let app = apps.get(t.id);
     if (!app) {
-      app = o.createApp({ dataDir: path.join(tenantsDir, t.id), setupCode: t.setupCode, quiet: true });
+      app = o.createApp({ dataDir: path.join(tenantsDir, t.id), setupCode: t.setupCode, quiet: true, branding });
       apps.set(t.id, app);
     }
     return app;
@@ -385,6 +387,13 @@ function createHub(o) {
   api.put('/settings', (req, res) => {
     const b = req.body || {};
     if (b.currency !== undefined) db.settings.currency = clean(b.currency, 12);
+    if (b.brandName !== undefined) db.settings.brandName = clean(b.brandName, 60);
+    if (b.brandUrl !== undefined) {
+      const u = clean(b.brandUrl, 200);
+      if (u && !/^https?:\/\/[^\s]+$/i.test(u)) return res.status(400).json({ error: 'invalid_url' });
+      db.settings.brandUrl = u;
+    }
+    if (b.hideBranding !== undefined) db.settings.hideBranding = !!b.hideBranding;
     if (b.password !== undefined) {
       if (!auth.verifyPassword(b.current, db.auth)) return res.status(403).json({ error: 'wrong_password' });
       if (typeof b.password !== 'string' || b.password.length < 8) return res.status(400).json({ error: 'weak_password' });

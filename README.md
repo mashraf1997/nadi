@@ -55,7 +55,8 @@ Nadi runs on your own server, with your own domain:
 - 🌍 **8 languages**: English, العربية (full RTL), Español, Português, Français, Türkçe, Bahasa Indonesia, हिन्दी
 
 **For the server**
-- Node.js + Express, **3 small dependencies**, no database to set up (atomic JSON files)
+- 🔌 **Optional connections**: online payments (Paymob, Stripe), automatic WhatsApp messages, email, phone notifications, daily backups ([details](#connections-optional))
+- Node.js + Express, **4 small dependencies**, no database to set up (atomic JSON files)
 - Runs on the smallest VPS. Docker image for `amd64` and `arm64`, tested on Node 18–24.
 - **Automatic HTTPS** with Caddy, **setup code** to protect a fresh install, **demo mode**
 - **Agency mode**: one server hosts many gyms, each on its own domain ([details](#agency-mode-host-all-your-clients-on-one-server))
@@ -122,6 +123,48 @@ npm start
 3. Members open their card link (sent to them on WhatsApp when they join) and hold the QR up to the camera.
 
 The kiosk only accepts card QR codes, never typed member numbers, and only shows the member's first name and status. If a tablet goes missing, press **Change kiosk link** and the old link stops working.
+
+## Connections (optional)
+
+Everything works without these. Turn on only what you need in **Admin → Connections**. Keys and passwords stay on your server: they are never sent to the browser and never included in exports or backups.
+
+### Online payments: Paymob or Stripe
+
+With a payment provider connected, members renew their plan from their member card when it is about to end (or has ended); the new period starts the day after the current one and the payment is recorded as **Online**.
+
+- **Paymob** (Egypt, Saudi Arabia, UAE, Oman, Pakistan): paste your secret key, public key, HMAC secret and integration IDs from the Paymob dashboard, then paste the callback URL shown in the panel as the *Transaction processed callback*.
+- **Stripe** (worldwide): paste your secret key (`sk_live_…` or `sk_test_…`). Optionally add a webhook to `https://your-domain/webhooks/stripe` for `checkout.session.completed` and paste its signing secret.
+- Each payment is checked with the provider when the customer comes back, and again by the webhook if they close the page. The amount and currency are verified and a payment is counted only once. Use test keys and **Open a test payment** to try it.
+- Your manual payment details and payment link still work when no provider is connected.
+
+### Automatic WhatsApp messages (WhatsApp Cloud API)
+
+Without this, the one-tap WhatsApp links keep working as before. With it, these messages go out on their own from your business number:
+
+| Message | Sent when | Template name |
+|---|---|---|
+| Membership started / renewed | you sell a plan, or a member renews online | `nadi_subscribed` |
+| Renewal reminder | 3 days before a plan ends, after 10:00, unless already renewed | `nadi_renewal` |
+
+1. Create an app at [Meta for Developers](https://developers.facebook.com/) with the WhatsApp product, and copy the **phone number ID** and a **permanent access token** (system user).
+2. WhatsApp only lets businesses start conversations with approved templates. Create each template with the exact text shown in the panel (copy button), wait for approval, then switch it on.
+3. **Send test** sends Meta's `hello_world` template to check the connection. Meta bills business-initiated conversations according to its own pricing.
+
+### Email (SMTP)
+
+Use any mailbox, for example your Hostinger email (`smtp.hostinger.com`, port 465 with SSL/TLS, or 587). With email set up, you get alerts (join requests, online renewals) and the daily backup by email. Alerts and the daily backup copy can each be switched on or off.
+
+### Notifications on this device
+
+The admin can be installed on your phone's home screen like an app. Press **Turn on notifications** on each device that should get an instant notification for new activity, no Telegram needed (on iPhone, add the admin to the home screen first; iOS 16.4+). Telegram alerts still work too.
+
+### Automatic daily backups
+
+Every day the app saves a backup to `DATA_DIR/backups/` and keeps the last 14 days. Download any of them from the panel, or press **Back up now**. Turn on **Email me the daily backup** to keep a gzipped copy off the server. To restore, use **Settings → Backup → Restore backup**. If the app hits an error or a backup fails, you get an alert (at most once an hour).
+
+### White-label (agency mode)
+
+In the agency panel (`/hub` → Settings), set your agency name and website: every client page then says "powered by *your agency*" instead of Nadi, or you can hide the line completely. Client login screens show your name too.
 
 ## Agency mode: host all your clients on one server
 

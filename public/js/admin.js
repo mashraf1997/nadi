@@ -135,6 +135,7 @@
   // ======================= state =======================
   const state = { data: null, tab: 'home', filter: 'all', q: '', leads: null, stopScan: null };
   let demo = null;
+  let agencyBrand = null; // white-label (agency mode)
 
   async function loadData() {
     state.data = await api('GET', '/api/admin/data');
@@ -175,11 +176,13 @@
       return;
     }
     demo = s.demo;
+    agencyBrand = s.brand && s.brand.name ? s.brand : null;
     await setLang(lang || s.lang);
     if (!s.setupDone) return renderSetup(s);
     if (!s.authed) return renderLogin();
     await loadData();
     renderShell();
+    swRegistration().catch(() => {});
     startPolling();
   }
 
@@ -191,7 +194,7 @@
   const authShell = (form) => `
     <div class="auth">
       <aside class="auth-side">
-        <div class="auth-brand"><img src="/img/icon.svg" alt="" width="40" height="40"><b>Nadi</b></div>
+        <div class="auth-brand">${agencyBrand ? `<b>${esc(agencyBrand.name)}</b>` : '<img src="/img/icon.svg" alt="" width="40" height="40"><b>Nadi</b>'}</div>
         <h2>${esc(T('authTagline'))}</h2>
         <ul>${['authPoint1', 'authPoint2', 'authPoint3'].map((k) => `<li>${ic('check')}<span>${esc(T(k))}</span></li>`).join('')}</ul>
         <div class="auth-mock" aria-hidden="true">
@@ -267,7 +270,7 @@
   // ======================= shell =======================
   const TABS = [
     ['home', 'dashboard'], ['checkin', 'qr'], ['members', 'users'], ['plans', 'tag'],
-    ['appearance', 'palette'], ['share', 'megaphone'], ['settings', 'settings'],
+    ['appearance', 'palette'], ['share', 'megaphone'], ['connect', 'plug'], ['settings', 'settings'],
   ];
 
   function renderShell() {
@@ -293,6 +296,8 @@
 
   async function renderTab() {
     $$('.nav button').forEach((b) => b.classList.toggle('active', b.dataset.tab === state.tab));
+    const activeTab = document.querySelector('.nav button.active');
+    if (activeTab && activeTab.scrollIntoView) activeTab.scrollIntoView({ inline: 'center', block: 'nearest' });
     if (state.stopScan && state.tab !== 'checkin') {
       state.stopScan();
       state.stopScan = null;
@@ -649,10 +654,11 @@
   const planBody = (f) => (f.planId.value ? { planId: f.planId.value, start: f.start ? f.start.value : '', price: f.price.value, paid: f.paid.value, method: f.method.value } : {});
 
   function doneModal(member, whatsappUrl, title) {
-    openModal(`<div class="ready-head"><div class="big">🎉</div><h3>${esc(title)}</h3><p class="muted">${esc(T('sendCardHint'))}</p></div>
+    const auto = member.autoSent;
+    openModal(`<div class="ready-head"><div class="big">🎉</div><h3>${esc(title)}</h3><p class="muted">${esc(auto ? T('cxAutoSent') : T('sendCardHint'))}</p></div>
       <div class="share-row"><input class="input" readonly value="${esc(member.cardUrl)}" dir="ltr"><button class="btn sm" data-act="copy" data-text="${esc(member.cardUrl)}" type="button">${ic('copy')}</button></div>
       <div class="modal-actions">
-        ${member.member.phone ? `<a class="btn wa" href="${esc(whatsappUrl)}" target="_blank" rel="noopener">${ic('whatsapp')}${esc(T('sendCard'))}</a>` : ''}
+        ${member.member.phone ? `<a class="btn ${auto ? 'line' : 'wa'}" href="${esc(whatsappUrl)}" target="_blank" rel="noopener">${ic('whatsapp')}${esc(T('sendCard'))}</a>` : ''}
         <button class="btn ghost" type="button" data-member-open="${member.member.id}">${esc(T('openProfile'))}</button>
       </div>`);
     $('[data-member-open]').addEventListener('click', () => memberModal(member.member.id));
@@ -1161,6 +1167,250 @@
     });
   };
 
+  // ======================= CONNECTIONS =======================
+  // Shared by every app: online payments, automatic WhatsApp, email,
+  // Telegram, push notifications on this device, automatic backups.
+  const copyRow = (value) => `<div class="share-row"><input class="input" readonly value="${esc(value)}" dir="ltr"><button class="btn sm" data-act="copy" data-text="${esc(value)}" type="button">${ic('copy')}</button></div>`;
+  const failMsg = (err) => (err.code === 'demo' ? T('demoBlocked') : T({ invalid_key: 'cxInvalidKey', invalid_currency: 'cxInvalidCurrency', invalid_integration: 'cxInvalidIntegration', invalid_email: 'cxInvalidEmail', invalid_host: 'cxInvalidHost', invalid_port: 'cxInvalidPort', invalid_phone_id: 'cxInvalidPhoneId', invalid_template: 'cxInvalidTemplate', invalid_phone: 'cxInvalidPhone', not_ready: 'cxNotReady', payments_off: 'cxNotReady' }[err.code] || 'error'));
+  const connChip = (on, label) => (on ? `<span class="ok-chip">${ic('check')}${esc(label || T('notifyConnected'))}</span>` : '');
+  const fval = (f, name) => (f[name] ? (f[name].type === 'checkbox' ? f[name].checked : f[name].value) : undefined);
+
+  async function renderPayments(box) {
+    const p = await api('GET', '/api/admin/payments');
+    const curGuess = /^[A-Z]{3}$/.test(state.data.settings.currency || '') ? state.data.settings.currency : 'EGP';
+    box.innerHTML = `
+      <h3>${ic('cash')}${esc(T('cxPayments'))}${connChip(p.ready, p.testMode ? T('cxTestMode') : T('cxLive'))}</h3>
+      <p class="muted small" style="margin-top:-6px">${esc(T('cxPaymentsHint'))}</p>
+      <form id="payf">
+        <div class="grid2">
+          <label class="field"><span>${esc(T('cxProvider'))}</span><select name="provider"><option value="">${esc(T('cxNone'))}</option><option value="paymob" ${p.provider === 'paymob' ? 'selected' : ''}>Paymob (${esc(T('cxPaymobWhere'))})</option><option value="stripe" ${p.provider === 'stripe' ? 'selected' : ''}>Stripe (${esc(T('cxStripeWhere'))})</option></select></label>
+          <label class="field"><span>${esc(T('cxCurrency'))}</span><input name="currency" maxlength="3" value="${esc(p.currency || curGuess)}" dir="ltr" style="text-transform:uppercase"><small>${esc(T('cxCurrencyHint'))}</small></label>
+        </div>
+        <div data-for="stripe" ${p.provider === 'stripe' ? '' : 'hidden'}>
+          <ol class="steps-list"><li>${esc(T('cxStripeStep1'))}</li><li>${esc(T('cxStripeStep2'))}</li></ol>
+          <label class="field"><span>${esc(T('cxSecretKey'))}</span><input name="stripeSecret" autocomplete="off" spellcheck="false" placeholder="sk_live_… / sk_test_…" dir="ltr">${p.stripeHasKey ? `<small>${esc(T('tokenSaved').replace('{hint}', p.stripeHint))}</small>` : ''}</label>
+          <label class="field"><span>${esc(T('cxWebhookSecret'))} <small class="muted">(${esc(T('optional'))})</small></span><input name="stripeWebhookSecret" autocomplete="off" spellcheck="false" placeholder="whsec_…" dir="ltr"><small>${esc(T('cxStripeWebhookHint'))}</small></label>
+          ${copyRow(p.stripeWebhookUrl)}
+        </div>
+        <div data-for="paymob" ${p.provider === 'paymob' ? '' : 'hidden'}>
+          <ol class="steps-list"><li>${esc(T('cxPaymobStep1'))}</li><li>${esc(T('cxPaymobStep2'))}</li></ol>
+          <div class="grid2">
+            <label class="field"><span>${esc(T('cxRegion'))}</span><select name="paymobRegion">${[['eg', '🇪🇬 Egypt'], ['sa', '🇸🇦 Saudi Arabia'], ['ae', '🇦🇪 UAE'], ['om', '🇴🇲 Oman']].map(([k, l]) => `<option value="${k}" ${p.paymobRegion === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            <label class="field"><span>${esc(T('cxIntegrationIds'))}</span><input name="paymobIntegrations" value="${esc(p.paymobIntegrations)}" placeholder="1234567, 7654321" dir="ltr"></label>
+            <label class="field"><span>${esc(T('cxPublicKey'))}</span><input name="paymobPublic" value="${esc(p.paymobPublic)}" placeholder="egy_pk_…" dir="ltr" spellcheck="false"></label>
+            <label class="field"><span>${esc(T('cxSecretKey'))}</span><input name="paymobSecret" autocomplete="off" placeholder="${p.paymobHasSecret ? '••••••••' : 'egy_sk_…'}" dir="ltr" spellcheck="false"></label>
+            <label class="field"><span>HMAC</span><input name="paymobHmac" autocomplete="off" placeholder="${p.paymobHasHmac ? '••••••••' : ''}" dir="ltr" spellcheck="false"></label>
+          </div>
+          <small class="muted">${esc(T('cxPaymobCallbackHint'))}</small>${copyRow(p.paymobCallbackUrl)}
+        </div>
+        <div class="btn-row"><button class="btn" type="submit">${ic('check')}${esc(T('save'))}</button>
+          <button class="btn line" type="button" data-pay-test ${p.ready ? '' : 'disabled'}>${ic('external')}${esc(T('cxTestPayment'))}</button>
+          ${p.provider ? `<button class="btn danger" type="button" data-pay-clear>${esc(T('disconnect'))}</button>` : ''}</div>
+      </form>`;
+    const f = $('#payf', box);
+    f.provider.addEventListener('change', () => $$('[data-for]', box).forEach((d) => (d.hidden = d.dataset.for !== f.provider.value)));
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {};
+      for (const k of ['provider', 'currency', 'stripeSecret', 'stripeWebhookSecret', 'paymobRegion', 'paymobIntegrations', 'paymobPublic', 'paymobSecret', 'paymobHmac']) body[k] = fval(f, k);
+      try {
+        await api('PUT', '/api/admin/payments', body);
+        toast(T('saved'));
+        renderPayments(box);
+      } catch (err) { toast(failMsg(err), true); }
+    });
+    box.addEventListener('click', async (e) => {
+      try {
+        if (e.target.closest('[data-pay-test]')) {
+          const r = await api('POST', '/api/admin/payments/test', {});
+          window.open(r.url, '_blank');
+        } else if (e.target.closest('[data-pay-clear]')) {
+          if (!confirm(T('cxDisconnectConfirm'))) return;
+          await api('PUT', '/api/admin/payments', { clear: true });
+          renderPayments(box);
+        }
+      } catch (err) { toast(err.message && err.code === 'provider_error' ? `${T('cxProviderError')}` : failMsg(err), true); }
+    });
+  }
+
+  async function renderWhatsApp(box) {
+    const w = await api('GET', '/api/admin/whatsapp');
+    const sample = (k) => (k.sample[lang] || k.sample.en || '').replace(/\{\{(\d)\}\}/g, (m, n) => `{{${n}}}`);
+    box.innerHTML = `
+      <h3>${ic('whatsapp')}${esc(T('cxWhatsApp'))}${connChip(w.ready)}</h3>
+      <p class="muted small" style="margin-top:-6px">${esc(T('cxWhatsAppHint'))}</p>
+      <details class="how"><summary>${esc(T('cxHowToConnect'))}</summary><ol class="steps-list"><li>${esc(T('cxWaStep1'))}</li><li>${esc(T('cxWaStep2'))}</li><li>${esc(T('cxWaStep3'))}</li><li>${esc(T('cxWaStep4'))}</li></ol></details>
+      <form id="waf">
+        <div class="grid2">
+          <label class="field"><span>${esc(T('cxPhoneNumberId'))}</span><input name="phoneNumberId" value="${esc(w.phoneNumberId)}" inputmode="numeric" dir="ltr"></label>
+          <label class="field"><span>${esc(T('cxTemplateLang'))}</span><input name="language" value="${esc(w.language || (lang === 'ar' ? 'ar' : 'en'))}" dir="ltr" maxlength="10"><small>ar · en · en_US · es · fr · tr · id · hi · pt_BR</small></label>
+        </div>
+        <label class="field"><span>${esc(T('cxAccessToken'))}</span><input name="token" autocomplete="off" spellcheck="false" placeholder="EAAG…" dir="ltr">${w.hasToken ? `<small>${esc(T('tokenSaved').replace('{hint}', w.tokenHint))}</small>` : ''}</label>
+        <h4 class="sub-title">${ic('sparkles')}${esc(T('cxAutoMessages'))}</h4>
+        <p class="muted small">${esc(T('cxTemplatesHint'))}</p>
+        <div class="tpl-list">${w.kinds.map((k) => `<div class="tpl" data-kind="${esc(k.key)}">
+          <label class="check"><span class="switch"><input type="checkbox" data-k="enabled" ${k.enabled ? 'checked' : ''}><i></i></span><span><b>${esc(T(`wa_${k.key}`))}</b></span></label>
+          <div class="tpl-body"><code dir="auto">${esc(sample(k))}</code><button class="icon-btn" type="button" data-act="copy" data-text="${esc(sample(k))}" aria-label="${esc(T('copy'))}">${ic('copy')}</button></div>
+          <label class="field tpl-name"><span>${esc(T('cxTemplateName'))}</span><input data-k="name" value="${esc(k.name)}" dir="ltr" spellcheck="false"></label>
+        </div>`).join('')}</div>
+        <div class="btn-row"><button class="btn" type="submit">${ic('check')}${esc(T('save'))}</button>${w.hasToken ? `<button class="btn danger" type="button" data-wa-clear>${esc(T('disconnect'))}</button>` : ''}</div>
+      </form>
+      ${w.ready ? `<div class="share-row" style="margin-top:14px"><input class="input" id="wa-to" placeholder="${esc(T('cxTestNumber'))}" dir="ltr" inputmode="tel"><button class="btn line" type="button" data-wa-test>${ic('whatsapp')}${esc(T('sendTest'))}</button></div>` : ''}
+      ${w.log.length ? `<details class="how"><summary>${esc(T('cxRecentMessages'))}</summary><ul class="wa-log">${w.log.map((l) => `<li class="${l.ok ? 'ok' : 'bad'}">${ic(l.ok ? 'check' : 'x-circle', 'i xs')}<span>${esc(new Date(l.at).toLocaleString(lang, { dateStyle: 'short', timeStyle: 'short' }))} · ${esc(l.kind)} · ${esc(l.to)}</span>${l.error ? `<small>${esc(l.error)}</small>` : ''}</li>`).join('')}</ul></details>` : ''}`;
+    const f = $('#waf', box);
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const templates = {};
+      for (const row of $$('.tpl', box)) templates[row.dataset.kind] = { enabled: $('[data-k=enabled]', row).checked, name: $('[data-k=name]', row).value };
+      try {
+        await api('PUT', '/api/admin/whatsapp', { token: f.token.value, phoneNumberId: f.phoneNumberId.value, language: f.language.value, templates });
+        toast(T('saved'));
+        renderWhatsApp(box);
+      } catch (err) { toast(failMsg(err), true); }
+    });
+    box.addEventListener('click', async (e) => {
+      try {
+        if (e.target.closest('[data-wa-test]')) {
+          await api('POST', '/api/admin/whatsapp/test', { to: $('#wa-to', box).value });
+          toast(T('testSent'));
+          renderWhatsApp(box);
+        } else if (e.target.closest('[data-wa-clear]')) {
+          if (!confirm(T('cxDisconnectConfirm'))) return;
+          await api('PUT', '/api/admin/whatsapp', { clear: true });
+          renderWhatsApp(box);
+        }
+      } catch (err) { toast(err.code ? failMsg(err) : T('testFailed'), true); renderWhatsApp(box); }
+    });
+  }
+
+  async function renderEmail(box) {
+    const m = await api('GET', '/api/admin/email');
+    box.innerHTML = `
+      <h3>${ic('mail')}${esc(T('cxEmail'))}${connChip(m.ready)}</h3>
+      <p class="muted small" style="margin-top:-6px">${esc(T('cxEmailHint'))}</p>
+      <form id="emf">
+        <div class="grid3">
+          <label class="field"><span>${esc(T('cxSmtpHost'))}</span><input name="host" value="${esc(m.host)}" placeholder="smtp.hostinger.com" dir="ltr" spellcheck="false"></label>
+          <label class="field"><span>${esc(T('cxPort'))}</span><input name="port" type="number" value="${esc(m.port)}" dir="ltr"></label>
+          <label class="field"><span>&nbsp;</span>${sw('secure', m.secure, 'SSL/TLS (465)')}</label>
+          <label class="field"><span>${esc(T('cxUsername'))}</span><input name="user" value="${esc(m.user)}" autocomplete="off" dir="ltr" spellcheck="false"></label>
+          <label class="field"><span>${esc(T('password'))}</span><input name="pass" type="password" autocomplete="new-password" placeholder="${m.hasPass ? '••••••••' : ''}"></label>
+          <label class="field"><span>${esc(T('cxFrom'))}</span><input name="from" value="${esc(m.from)}" placeholder="${esc(state.data.settings.name)} &lt;hello@yourdomain.com&gt;" dir="ltr"></label>
+        </div>
+        <label class="field"><span>${esc(T('cxOwnerEmail'))}</span><input name="ownerEmail" type="email" value="${esc(m.ownerEmail)}" dir="ltr"></label>
+        ${sw('alerts', m.alerts, esc(T('cxEmailAlerts')))}
+        ${sw('backups', m.backups, esc(T('cxEmailBackups')))}
+        <div class="btn-row"><button class="btn" type="submit">${ic('check')}${esc(T('save'))}</button><button class="btn line" type="button" data-em-test ${m.ready ? '' : 'disabled'}>${ic('mail')}${esc(T('sendTest'))}</button>${m.host ? `<button class="btn danger" type="button" data-em-clear>${esc(T('disconnect'))}</button>` : ''}</div>
+      </form>`;
+    const f = $('#emf', box);
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const body = {};
+      for (const k of ['host', 'port', 'secure', 'user', 'pass', 'from', 'ownerEmail', 'alerts', 'backups']) body[k] = fval(f, k);
+      try {
+        await api('PUT', '/api/admin/email', body);
+        toast(T('saved'));
+        renderEmail(box);
+      } catch (err) { toast(failMsg(err), true); }
+    });
+    box.addEventListener('click', async (e) => {
+      try {
+        if (e.target.closest('[data-em-test]')) {
+          await api('POST', '/api/admin/email/test', { text: T('testMessage') });
+          toast(T('testSent'));
+        } else if (e.target.closest('[data-em-clear]')) {
+          if (!confirm(T('cxDisconnectConfirm'))) return;
+          await api('PUT', '/api/admin/email', { clear: true });
+          renderEmail(box);
+        }
+      } catch (err) { toast(err.code === 'not_ready' ? T('cxNotReady') : `${T('testFailed')}`, true); }
+    });
+  }
+
+  async function swRegistration() {
+    if (!('serviceWorker' in navigator)) return null;
+    return navigator.serviceWorker.register('/admin-sw.js', { scope: '/admin' });
+  }
+
+  async function renderPush(box) {
+    const p = await api('GET', '/api/admin/push');
+    const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    let sub = null;
+    if (supported) {
+      try { const reg = await swRegistration(); sub = reg && (await reg.pushManager.getSubscription()); } catch { sub = null; }
+    }
+    const ios = /iPhone|iPad/.test(navigator.userAgent) && !window.matchMedia('(display-mode: standalone)').matches;
+    box.innerHTML = `
+      <h3>${ic('bell')}${esc(T('cxPush'))}${connChip(!!sub, T('cxThisDeviceOn'))}</h3>
+      <p class="muted small" style="margin-top:-6px">${esc(T('cxPushHint'))}</p>
+      ${ios ? `<p class="note-box">${ic('external', 'i xs')} ${esc(T('cxIosHint'))}</p>` : ''}
+      <p class="muted small">${esc(T('cxDevices').replace('{n}', p.devices))}</p>
+      <div class="btn-row">${!supported ? `<span class="muted">${esc(T('cxPushUnsupported'))}</span>` : sub ? `<button class="btn line" type="button" data-push-test>${ic('bell')}${esc(T('sendTest'))}</button><button class="btn danger" type="button" data-push-off>${esc(T('cxTurnOff'))}</button>` : `<button class="btn" type="button" data-push-on>${ic('bell')}${esc(T('cxTurnOn'))}</button>`}</div>`;
+    box.onclick = async (e) => {
+      try {
+        if (e.target.closest('[data-push-on]')) {
+          if ((await Notification.requestPermission()) !== 'granted') return toast(T('cxPushDenied'), true);
+          const reg = await swRegistration();
+          const key = Uint8Array.from(atob(p.publicKey.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+          const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+          await api('POST', '/api/admin/push/subscribe', { subscription: s.toJSON() });
+          toast(T('saved'));
+          renderPush(box);
+        } else if (e.target.closest('[data-push-test]')) {
+          const r = await api('POST', '/api/admin/push/test', { text: T('testMessage') });
+          toast(r.sent ? T('testSent') : T('testFailed'), !r.sent);
+        } else if (e.target.closest('[data-push-off]')) {
+          const reg = await swRegistration();
+          const s = await reg.pushManager.getSubscription();
+          if (s) {
+            await api('POST', '/api/admin/push/unsubscribe', { endpoint: s.endpoint });
+            await s.unsubscribe();
+          }
+          renderPush(box);
+        }
+      } catch {
+        toast(T('error'), true);
+      }
+    };
+  }
+
+  async function renderBackups(box) {
+    const b = await api('GET', '/api/admin/backups');
+    const kb = (n) => `${Math.max(1, Math.round(n / 1024))} KB`;
+    box.innerHTML = `
+      <h3>${ic('download')}${esc(T('cxBackups'))}</h3>
+      <p class="muted small" style="margin-top:-6px">${esc(T('cxBackupsHint').replace('{n}', b.keep))}</p>
+      ${b.backups.length ? `<ul class="backup-list">${b.backups.map((x) => `<li><span>${esc(fmtDate(x.date, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }))}</span><small class="muted">${kb(x.size)}</small><a class="btn sm ghost" href="/api/admin/backups/${x.date}" download>${ic('download')}</a></li>`).join('')}</ul>` : `<p class="muted">${esc(T('cxNoBackups'))}</p>`}
+      <button class="btn line sm" type="button" data-bk-now>${ic('download')}${esc(T('cxBackupNow'))}</button>`;
+    box.onclick = async (e) => {
+      if (!e.target.closest('[data-bk-now]')) return;
+      try {
+        await api('POST', '/api/admin/backups/now', {});
+        toast(T('saved'));
+        renderBackups(box);
+      } catch (err) { toast(failMsg(err), true); }
+    };
+  }
+
+  VIEWS.connect = async (view) => {
+    view.innerHTML = `
+      <h2 class="title">${esc(T('connect'))}</h2>
+      <p class="muted" style="margin:-10px 0 16px">${esc(T('cxIntro'))}</p>
+      <div class="card" id="cx-pay"></div>
+      <div class="card" id="cx-wa"></div>
+      <div class="grid2 gap cx-cols"><div class="card" id="cx-push"></div><div class="card" id="notify-card"></div></div>
+      <div class="card" id="cx-email"></div>
+      <div class="card" id="cx-backup"></div>`;
+    await Promise.all([
+      renderPayments($('#cx-pay', view)),
+      renderWhatsApp($('#cx-wa', view)),
+      renderPush($('#cx-push', view)),
+      renderNotify($('#notify-card', view)),
+      renderEmail($('#cx-email', view)),
+      renderBackups($('#cx-backup', view)),
+    ]);
+  };
+
   // ======================= SETTINGS =======================
   // ---- Telegram notifications card (Settings) ----
   async function renderNotify(box) {
@@ -1253,7 +1503,6 @@
         </div>
         <div class="save-bar" style="margin-bottom:16px"><button class="btn block" type="submit">${ic('check')}${esc(T('save'))}</button></div>
       </form>
-      <div class="card" id="notify-card"></div>
       <div class="card"><h3>${ic('lock')}${esc(T('security'))}</h3>
         <form id="pw" class="grid2">
           <label class="field"><span>${esc(T('currentPassword'))}</span><input name="current" type="password" autocomplete="current-password" required></label>
@@ -1265,7 +1514,6 @@
         <label class="btn line" style="cursor:pointer">${ic('upload')}${esc(T('importData'))}<input type="file" accept="application/json,.json" id="imp" hidden></label>
         <a class="btn ghost" href="/api/admin/members.csv" download>${ic('file')}${esc(T('membersCsv'))}</a>
         <a class="btn ghost" href="/api/admin/payments.csv" download>${ic('file')}${esc(T('paymentsCsv'))}</a></div></div>`;
-    renderNotify($('#notify-card', view));
     const f = $('#sf', view);
     wireWeek($('#hours', view));
     f.addEventListener('submit', async (e) => {

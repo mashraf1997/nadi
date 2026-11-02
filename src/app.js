@@ -16,6 +16,12 @@ const M = require('./members');
 const { loadSample, GYM_TYPES } = require('./sample');
 const { resetDemo } = require('./demo');
 const notify = require('./notify');
+const payments = require('./payments');
+const wa = require('./whatsapp');
+const mailer = require('./mailer');
+const push = require('./push');
+const backup = require('./backup');
+const { strings } = require('./i18n');
 const { renderGymPage, renderCardPage, renderKioskPage, renderPoster, renderManifest } = require('./views');
 const { toCsv } = require('./csv');
 
@@ -160,7 +166,7 @@ function findByCode(store, code) {
   return store.memberByToken(raw);
 }
 
-function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = null }) {
+function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = null, branding = null }) {
   const store = new Store(dataDir);
   const app = express();
   const now = () => (clock ? clock() : D.nowIn(store.settings.timezone));
@@ -199,6 +205,71 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
 
   const baseUrl = (req) => `${req.protocol}://${req.get('host')}/`;
   const cardUrl = (req, m) => `${baseUrl(req)}m/${m.token}`;
+
+  // ---------- integrations ----------
+  const rememberBase = (req) => {
+    const b = baseUrl(req);
+    if (store.db.publicUrl !== b && !/\/\/(localhost|127\.0\.0\.1)[:/]/.test(b)) {
+      store.db.publicUrl = b;
+      store.save();
+    }
+  };
+  const publicBase = () => store.db.publicUrl || `http://localhost:${process.env.PORT || 3000}/`;
+  const snapshot = () => {
+    const { settings, plans, classes, leads, nextMemberNo } = store.db;
+    return { app: 'nadi', version: 1, exportedAt: new Date().toISOString(), settings, plans, classes, leads, nextMemberNo, members: store.members, subs: store.subs, payments: store.payments, checkins: store.checkins };
+  };
+  const tx = () => strings(store.settings.lang);
+  const firstName = (n) => String(n || '').trim().split(/\s+/)[0] || '';
+  const WA_KINDS = [
+    { key: 'subscribed', defaultName: 'nadi_subscribed', params: ['name', 'plan', 'until', 'card'], sample: { en: 'Hi {{1}}! Your {{2}} membership is active until {{3}} 💪 Your member card: {{4}}', ar: 'أهلًا يا {{1}}! اشتراك {{2}} شغال لحد {{3}} 💪 كارنيهك: {{4}}' } },
+    { key: 'renewal', defaultName: 'nadi_renewal', params: ['name', 'plan', 'date', 'card'], sample: { en: 'Hi {{1}}, your {{2}} membership ends on {{3}}. Renew in one tap from your card: {{4}}', ar: 'أهلًا يا {{1}}، اشتراك {{2}} بيخلص يوم {{3}}. جدد بضغطة من الكارنيه: {{4}}' } },
+  ];
+  const autoWa = (kind) => {
+    const c = wa.cfgOf(store);
+    return wa.ready(c) && !!(c.templates[kind] || {}).enabled;
+  };
+  const untilLabel = (sub) => M.dateLabel(sub.end, store.settings.lang, { day: 'numeric', month: 'long', year: 'numeric' });
+  function announceSub(m, sub, base) {
+    if (!m || !sub || !m.phone) return;
+    wa.sendInBackground(store, 'subscribed', intlPhone(m.phone, store.settings.whatsapp), [firstName(m.name), sub.planName, untilLabel(sub), `${base}m/${m.token}`]);
+  }
+  /** The plan a member would renew online (their last one, if still sold), or null. */
+  function renewPlan(m, st) {
+    if (!st || !st.sub || !(st.status === 'expired' || (st.status === 'active' && st.soon))) return null;
+    if (store.subsOf(m.id).some((x) => !x.cancelled && x.start > st.sub.end)) return null; // already renewed
+    const plan = store.get('plans', st.sub.planId);
+    return plan && plan.price > 0 ? plan : null;
+  }
+  // Online renewals land here once (return page or webhook).
+  async function onPaid(kind, id, info) {
+    if (kind !== 'renew') return;
+    const [memberId, planId] = String(id).split('|');
+    const m = store.member(memberId);
+    if (!m) return;
+    const r = sell(m, { planId, price: info.amount, paid: info.amount, method: 'online' }, now().date);
+    if (r.error) return;
+    announceSub(m, r.sub, publicBase());
+    notify.alertOwner(store, `💳 *${tx().msgRenewedOnline}*\n${m.name} · ${r.sub.planName}\n${M.formatMoney(info.amount, store.settings.currency)}`, { url: `${publicBase()}admin#members`, path: '/admin#members' });
+  }
+  /** Three days before a plan ends (after 10:00): one reminder, unless already renewed. */
+  function sendRenewalReminders() {
+    const n = now();
+    if (n.minutes < 10 * 60 || !autoWa('renewal')) return 0;
+    let sent = 0;
+    for (const m of store.members) {
+      const subs = store.subsOf(m.id);
+      const st = M.memberStatus(subs, n.date);
+      if (st.status !== 'active' || !st.sub || st.sub.renewReminded || st.daysLeft > 3) continue;
+      if (subs.some((x) => !x.cancelled && x.start > st.sub.end)) continue; // already renewed
+      wa.sendInBackground(store, 'renewal', intlPhone(m.phone, store.settings.whatsapp), [firstName(m.name), st.sub.planName, untilLabel(st.sub), `${publicBase()}m/${m.token}`]);
+      st.sub.renewReminded = true;
+      sent++;
+    }
+    if (sent) store.saveList('subs');
+    return sent;
+  }
+  const viewSettings = () => (branding ? { ...store.settings, _brand: branding() } : store.settings);
   const pickLang = (req) => (LANGS.includes(req.query.lang) ? req.query.lang : store.settings.lang);
   const requireAuth = (req, res, next) => (auth.isAuthenticated(req, store.db) ? next() : res.status(401).json({ error: 'unauthorized' }));
   const notInDemo = (req, res, next) => (demo ? res.status(403).json({ error: 'demo' }) : next());
@@ -314,6 +385,7 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
     };
   }
 
+  payments.mountPublic(app, store, express, { onPaid });
   app.use(express.static(PUBLIC_DIR, { maxAge: '1h', index: false }));
   app.use('/uploads', express.static(store.uploadsDir, { maxAge: '30d', immutable: true }));
   app.get('/js/jsqr.js', (req, res) => res.set('Cache-Control', 'public, max-age=86400').type('js').sendFile(JSQR));
@@ -331,7 +403,7 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
     res.setHeader('Cache-Control', 'no-cache');
     res.type('html').send(
       renderGymPage({
-        settings: store.settings,
+        settings: viewSettings(),
         plans: store.sorted('plans').filter((p) => p.public !== false),
         classes: [...store.db.classes].sort((a, b) => a.day - b.day || a.start - b.start),
         lang: pickLang(req),
@@ -355,9 +427,13 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
     const url = cardUrl(req, m);
     const qr = await QRCode.toString(url, { type: 'svg', margin: 1, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } });
     const visits = store.checkins.filter((c) => c.memberId === m.id && c.ok);
+    const plan = !demo && payments.ready(payments.cfgOf(store)) ? renewPlan(m, st) : null;
     res.type('html').send(
       renderCardPage({
-        settings: store.settings,
+        renewOnline: plan ? { name: plan.name, price: M.formatMoney(plan.price, store.settings.currency) } : null,
+        payPending: req.query.pay === 'pending',
+        justPaid: req.query.paid === '1',
+        settings: viewSettings(),
         lang: pickLang(req),
         member: m,
         state: st,
@@ -400,7 +476,23 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
       demo: demo ? { password: demo.password, resetMinutes: demo.resetMinutes } : null,
       languages: LANGUAGES,
       gymTypes: GYM_TYPES,
+      brand: branding ? branding() : null,
     });
+  });
+
+  // Renew from the member card, paid online (Stripe / Paymob).
+  api.post('/members/:token/renew', async (req, res) => {
+    if (joinLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
+    const m = store.memberByToken(req.params.token);
+    if (!m) return res.status(404).json({ error: 'not_found' });
+    const plan = renewPlan(m, M.memberStatus(store.subsOf(m.id), now().date));
+    if (!plan || !payments.ready(payments.cfgOf(store))) return res.status(400).json({ error: 'not_payable' });
+    try {
+      const r = await payments.createCheckout(store, baseUrl(req), { kind: 'renew', id: `${m.id}|${plan.id}`, amount: plan.price, title: `${store.settings.name} · ${plan.name}`, customer: { name: m.name, phone: m.phone }, returnTo: `/m/${m.token}` });
+      res.json({ url: r.url });
+    } catch (err) {
+      res.status(400).json({ error: err.code || 'provider_error' });
+    }
   });
 
   api.post('/join', (req, res) => {
@@ -417,7 +509,8 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
     if (store.db.leads.length > 2000) store.db.leads = store.db.leads.slice(-2000);
     store.save();
     const text = M.leadMessage(lead, store.settings);
-    notify.notifyInBackground(store.db.notify, `${text}\n\n🔗 ${baseUrl(req)}admin#members`);
+    rememberBase(req);
+    notify.alertOwner(store, text, { url: `${baseUrl(req)}admin#members`, path: '/admin#members' });
     res.json({ ok: true, whatsappUrl: M.whatsappUrl(store.settings.whatsapp, text) });
   });
 
@@ -471,6 +564,15 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
   const admin = express.Router();
   admin.use(requireAuth);
   notify.mountRoutes(admin, store, { guard: notInDemo, appName: 'Nadi' });
+  payments.mountAdmin(admin, store, { guard: notInDemo, baseUrl });
+  wa.mountAdmin(admin, store, { guard: notInDemo, kinds: WA_KINDS });
+  mailer.mountAdmin(admin, store, { guard: notInDemo, appName: 'Nadi' });
+  push.mountAdmin(admin, store, { appName: 'Nadi' });
+  backup.mountAdmin(admin, store, { snapshot, guard: notInDemo, appName: 'Nadi' });
+  admin.use((req, res, next) => {
+    rememberBase(req);
+    next();
+  });
 
   admin.get('/data', (req, res) => {
     res.json({
@@ -586,7 +688,8 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
       }
     }
     const welcome = M.welcomeMessage(m, sub, store.settings, cardUrl(req, m));
-    res.json({ ...detail(req, m), whatsappUrl: M.whatsappUrl(intlPhone(m.phone, store.settings.whatsapp), welcome) });
+    if (sub) announceSub(m, sub, baseUrl(req));
+    res.json({ ...detail(req, m), autoSent: !!sub && !!m.phone && autoWa('subscribed'), whatsappUrl: M.whatsappUrl(intlPhone(m.phone, store.settings.whatsapp), welcome) });
   });
 
   admin.put('/members/:id', (req, res) => {
@@ -613,7 +716,8 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
     const r = sell(m, req.body || {}, now().date);
     if (r.error) return res.status(400).json(r);
     const welcome = M.welcomeMessage(m, r.sub, store.settings, cardUrl(req, m));
-    res.json({ ...detail(req, m), whatsappUrl: M.whatsappUrl(intlPhone(m.phone, store.settings.whatsapp), welcome) });
+    announceSub(m, r.sub, baseUrl(req));
+    res.json({ ...detail(req, m), autoSent: !!m.phone && autoWa('subscribed'), whatsappUrl: M.whatsappUrl(intlPhone(m.phone, store.settings.whatsapp), welcome) });
   });
 
   admin.post('/subs/:id/freeze', (req, res) => {
@@ -789,9 +893,8 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
   });
 
   admin.get('/export', (req, res) => {
-    const { settings, plans, classes, leads, nextMemberNo } = store.db;
     res.setHeader('Content-Disposition', `attachment; filename="nadi-backup-${now().date}.json"`);
-    res.json({ app: 'nadi', version: 1, exportedAt: new Date().toISOString(), settings, plans, classes, leads, nextMemberNo, members: store.members, subs: store.subs, payments: store.payments, checkins: store.checkins });
+    res.json(snapshot());
   });
 
   admin.post('/import', notInDemo, (req, res) => {
@@ -829,9 +932,15 @@ function createApp({ dataDir, setupCode, demo = null, quiet = false, clock = nul
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'too_large' });
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'invalid_json' });
     console.error(err);
+    notify.alertError(store, 'Nadi', err);
     res.status(500).json({ error: 'server_error' });
   });
 
+  if (!demo) {
+    backup.schedule(store, { snapshot, mailer, alert: (text) => notify.alertOwner(store, text), appName: 'Nadi' });
+    setInterval(sendRenewalReminders, 60 * 60 * 1000).unref();
+  }
+  app.locals.runReminders = sendRenewalReminders;
   app.locals.store = store;
   app.locals.setupCode = store.db.setupCode;
   return app;

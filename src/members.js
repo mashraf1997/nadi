@@ -10,7 +10,7 @@
 const D = require('./dates');
 const { strings } = require('./i18n');
 
-const PAY_METHODS = ['cash', 'card', 'transfer', 'wallet', 'other'];
+const PAY_METHODS = ['cash', 'card', 'transfer', 'wallet', 'other', 'online'];
 const DUPLICATE_MINUTES = 30; // a second scan within this window doesn't count twice
 const SOON_DAYS = 7;
 
